@@ -17,6 +17,8 @@
 # *   along with this program.  If not, see <http://www.gnu.org/licenses/>. *
 # ***************************************************************************/
 
+PYTHONPATH := "$(shell pwd)/../makedeb/src/:${PYTHONPATH}"
+
 
 .PHONY: all
 all: test
@@ -24,6 +26,14 @@ all: test
 
 .PHONY: test
 test:
-	@PYTHONPATH="$(shell pwd)/../makedeb/src/:${PYTHONPATH}"\
+	@PYTHONPATH=$(PYTHONPATH)\
 	 PYTHONDONTWRITEBYTECODE=1\
 	  python -m unittest --verbose deso.makedeb.test.allTests
+
+
+.PHONY: %
+%:
+	@echo "Running deso.makedeb.test.TestMakeDeb.TestMakeDeb.$@ ..."
+	@PYTHONPATH=$(PYTHONPATH)\
+	 PYTHONDONTWRITEBYTECODE=1\
+	  python -m unittest --verbose deso.makedeb.test.testMakeDeb.TestMakeDeb.$@
