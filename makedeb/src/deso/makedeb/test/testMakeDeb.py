@@ -95,40 +95,42 @@ class TestMakeDeb(TestCase):
 
   def testCopyContentRegularFile(self):
     """Test copy of a regular file."""
-    with TemporaryDirectory() as d:
-      data = "hello"
-      f1 = join(d, "f1")
-      f2 = join(d, "f2")
+    for dst in ("f2", "some/destination/dir/f2"):
+      with TemporaryDirectory() as d:
+        data = "hello"
+        f1 = join(d, "f1")
+        f2 = join(d, dst)
 
-      with open(f1, "w+") as f:
-        f.write(data)
+        with open(f1, "w+") as f:
+          f.write(data)
 
-      content = [(f1, "f2")]
-      _copyContent(content, d)
+        content = [(f1, dst)]
+        _copyContent(content, d)
 
-      with open(f2, "r") as f:
-        self.assertEqual(f.read(), data)
+        with open(f2, "r") as f:
+          self.assertEqual(f.read(), data)
 
 
   def testCopyContentDirectory(self):
     """Test copy of a directory."""
-    with TemporaryDirectory() as d:
-      data = "mydata"
-      d1 = join(d, "d1")
-      mkdir(d1)
+    for dst in ("d2", "usr/local/share/d2"):
+      with TemporaryDirectory() as d:
+        data = "mydata"
+        d1 = join(d, "d1")
+        mkdir(d1)
 
-      with open(join(d, "d1", "foobar"), "w+") as f:
-        f.write(data)
-      with open(join(d, "d1", "baz"), "w+") as f:
-        f.write(data)
+        with open(join(d, "d1", "foobar"), "w+") as f:
+          f.write(data)
+        with open(join(d, "d1", "baz"), "w+") as f:
+          f.write(data)
 
-      content = [(d1, "d2")]
-      _copyContent(content, d)
+        content = [(d1, dst)]
+        _copyContent(content, d)
 
-      with open(join(d, "d2", "foobar"), "r") as f:
-        self.assertEqual(f.read(), data)
-      with open(join(d, "d2", "baz"), "r") as f:
-        self.assertEqual(f.read(), data)
+        with open(join(d, dst, "foobar"), "r") as f:
+          self.assertEqual(f.read(), data)
+        with open(join(d, dst, "baz"), "r") as f:
+          self.assertEqual(f.read(), data)
 
 
   def testControlFileLongDescription(self):

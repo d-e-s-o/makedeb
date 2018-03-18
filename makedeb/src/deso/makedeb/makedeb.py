@@ -29,11 +29,13 @@ from math import (
 from os import (
   chdir,
   getcwd,
+  makedirs,
   mkdir,
   walk,
 )
 from os.path import (
   curdir,
+  dirname,
   getsize,
   isabs,
   isdir,
@@ -106,10 +108,14 @@ def _copyContent(content, pkg_root, ignore=None):
     if isabs(dst):
       raise RuntimeError("Destination path (%s) must not be absolute" % dst)
 
+    dst = join(pkg_root, dst)
     if isdir(src):
-      copytree(src, join(pkg_root, dst), ignore=ignore)
+      copytree(src, dst, ignore=ignore)
     else:
-      copy2(src, join(pkg_root, dst))
+      # copy2 does not automatically create all directories up to the
+      # destination file.
+      makedirs(dirname(dst), exist_ok=True)
+      copy2(src, dst)
 
 
 def _makeControl(control, name, version, install_size,
