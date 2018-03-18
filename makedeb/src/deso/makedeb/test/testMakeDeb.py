@@ -33,7 +33,12 @@ from hashlib import (
   md5,
 )
 from os import (
+  access,
+  chmod,
   mkdir,
+  R_OK,
+  W_OK,
+  X_OK,
 )
 from os.path import (
   isfile,
@@ -109,6 +114,27 @@ class TestMakeDeb(TestCase):
 
         with open(f2, "r") as f:
           self.assertEqual(f.read(), data)
+
+
+  def testCopyContentRegularFilePermissions(self):
+    """Test copy of a regular file."""
+    with TemporaryDirectory() as d:
+      data = "hello"
+      f1 = join(d, "f1")
+      f2 = join(d, "f2")
+
+      with open(f1, "w+") as f:
+        f.write(data)
+
+      chmod(f1, 0o401)
+
+      content = [(f1, "f2")]
+      _copyContent(content, d)
+
+      with open(f2, "r") as f:
+        self.assertEqual(f.read(), data)
+
+      self.assertTrue(access(f2, R_OK | W_OK | X_OK))
 
 
   def testCopyContentDirectory(self):

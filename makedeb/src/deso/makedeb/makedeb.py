@@ -28,9 +28,11 @@ from math import (
 )
 from os import (
   chdir,
+  chmod,
   getcwd,
   makedirs,
   mkdir,
+  stat,
   walk,
 )
 from os.path import (
@@ -45,6 +47,11 @@ from os.path import (
 from shutil import (
   copy2,
   copytree,
+)
+from stat import (
+  S_IXGRP,
+  S_IXOTH,
+  S_IXUSR,
 )
 from subprocess import (
   check_call,
@@ -100,6 +107,32 @@ def _getInstallSize(pkg):
   return size
 
 
+def _normalizeFileMode(file_):
+  """Normalize the mode for the given file."""
+  s = stat(file_)
+  exe = (s.st_mode & S_IXUSR) or (s.st_mode & S_IXGRP) or (s.st_mode & S_IXOTH)
+  # If anybody has execute access we extend that to everybody.
+  mode = 0o755 if exe else 0o644
+  chmod(file_, mode)
+
+
+def _normalizeMode(dir_):
+  """Normalize the mode for all files/directories below the given directory.
+
+    We use a heuristic approach here instead of specifying everything.
+    If the file is executable for anyone we make it executable for
+    everyone. If it is readable we make it readable for everyone. If it
+    is writable we make it writable only for the owner (which will
+    eventually be root).
+  """
+  for root, _, files in walk(dir_):
+    # Directories always have executable access and are owner writable.
+    chmod(root, 0o755)
+
+    for file_ in files:
+      _normalizeFileMode(join(root, file_))
+
+
 def _copyContent(content, pkg_root, ignore=None):
   """Copy the content into the deb package root."""
   for src, dst in content:
@@ -111,11 +144,16 @@ def _copyContent(content, pkg_root, ignore=None):
     dst = join(pkg_root, dst)
     if isdir(src):
       copytree(src, dst, ignore=ignore)
+      _normalizeMode(dst)
     else:
       # copy2 does not automatically create all directories up to the
       # destination file.
       makedirs(dirname(dst), exist_ok=True)
       copy2(src, dst)
+      # TODO: We currently punt on fixing up the directories potentially
+      #       created above via makedirs. They will have the users mode
+      #       mask applied.
+      _normalizeFileMode(dst)
 
 
 def _makeControl(control, name, version, install_size,
