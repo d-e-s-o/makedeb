@@ -27,6 +27,7 @@ from deso.makedeb.makedeb import (
   _copyContent,
   _getInstallSize,
   _makeControl,
+  _makeControlTar,
   cwd,
 )
 from hashlib import (
@@ -35,6 +36,7 @@ from hashlib import (
 from os import (
   access,
   chmod,
+  fsync,
   mkdir,
   R_OK,
   W_OK,
@@ -184,6 +186,42 @@ And here is even more\
        And here is even more
       """)
       self.assertTrue(content.endswith(expected))
+
+
+  def testAdditionalControlFileSupport(self):
+    """Test that we support adding of other control files properly."""
+    with NamedTemporaryFile("w+") as preinst, \
+         NamedTemporaryFile("w+") as postrm:
+      preinst.write(dedent("""\
+        #!/bin/sh
+        echo preinst
+      """))
+      postrm.write(dedent("""\
+        #!/bin/sh
+        echo postrm
+      """))
+      preinst.flush()
+      postrm.flush()
+      fsync(preinst)
+      fsync(postrm)
+
+      with TemporaryDirectory() as pkg:
+        debian = join(pkg, "DEBIAN")
+        mkdir(debian)
+
+        control_files = [
+          (preinst.name, "preinst"),
+          (postrm.name, "postrm"),
+        ]
+        _makeControlTar(debian, control_files, pkg)
+
+        with cwd(pkg):
+          with tarOpen("control.tar.gz", "r") as f:
+            members = f.getmembers()
+            self.assertEqual(len(members), 3)
+            self.assertEqual(members[0].name, ".")
+            self.assertEqual(members[1].name, "./preinst")
+            self.assertEqual(members[2].name, "./postrm")
 
 
   def inspect(self, deb):

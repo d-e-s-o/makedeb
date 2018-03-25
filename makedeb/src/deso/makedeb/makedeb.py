@@ -220,12 +220,27 @@ def _makeDebBinary(pkg_root):
   return path
 
 
-def _makeControlTar(debian, pkg_root):
+def _makeControlTar(debian, control_files, pkg_root):
   """Create a control.tar.gz containing all the DEBIAN files."""
   path = join(pkg_root, "control.tar.gz")
   with tarOpen(path, "x:gz") as control:
     with cwd(debian):
       control.add(curdir, filter=_chownTarInfo)
+
+    if control_files is not None:
+      for src, dst in control_files:
+        if isabs(dst):
+          raise RuntimeError("Destination path (%s) must not be absolute" % dst)
+
+        # We could impose additional checks on the source/destination
+        # files here. E.g., using a directory as a source or placing a
+        # file not in the root are unlikely to make much sense. However,
+        # we do not want to get into too much business of enforcing
+        # policies. A whitelist-style approach (check for things
+        # allowed, deny everything else) does not seem very future proof
+        # while a blacklist based method is prone to missing certain
+        # bits.
+        control.add(src, arcname=join(curdir, dst), filter=_chownTarInfo)
 
   return path
 
@@ -241,10 +256,10 @@ def _makeDataTar(content, pkg_root):
   return path
 
 
-def _makeDebPkg(outfile, debian, content, pkg_root):
+def _makeDebPkg(outfile, debian, control_files, content, pkg_root):
   """Create a .deb package."""
   deb_bin = _makeDebBinary(pkg_root)
-  control = _makeControlTar(debian, pkg_root)
+  control = _makeControlTar(debian, control_files, pkg_root)
   data = _makeDataTar(content, pkg_root)
 
   # Python does not seem to have support for ar(1)-style archives by
@@ -254,9 +269,9 @@ def _makeDebPkg(outfile, debian, content, pkg_root):
              stdout=DEVNULL, stderr=DEVNULL)
 
 
-def makeDeb(pkg_name, version, content, outdir=None, ignore=None,
-            dependencies=None, maintainer=None, homepage=None,
-            short_desc=None, long_desc=None):
+def makeDeb(pkg_name, version, content, control_files=None, outdir=None,
+            ignore=None, dependencies=None, maintainer=None,
+            homepage=None, short_desc=None, long_desc=None):
   """Create a .deb package.
 
   `pkg_name` is an arbitrary name of the resulting package. This name
@@ -266,6 +281,9 @@ def makeDeb(pkg_name, version, content, outdir=None, ignore=None,
     be a semantic version but the string is not interpreted by us.
   `content` is an iterable of (src, dst) pairs. Both the source and the
     destination may be directories, which will be copied recursively.
+  `control_files` is an iterable of (str, dst) pairs describing
+    additional control files to include in the package. Examples of
+    such a files include preinst and postinst scripts.
   `outdir` specifies the output directory. If its value is None the
     current directory will be used.
   `ignore` is a shutil.copytree style ignore function that can be used
@@ -332,5 +350,5 @@ def makeDeb(pkg_name, version, content, outdir=None, ignore=None,
       outdir = curdir
 
     outfile = join(outdir, "%s-%s.deb" % (pkg_name, version))
-    _makeDebPkg(outfile, debian, content, pkg)
+    _makeDebPkg(outfile, debian, control_files, content, pkg)
     return outfile
