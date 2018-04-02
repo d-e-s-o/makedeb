@@ -239,13 +239,16 @@ And here is even more\
 
         with tarOpen("data.tar.xz", "r") as f:
           members = f.getmembers()
-          self.assertEqual(members[0].name, "usr")
-          self.assertEqual(members[1].name, "usr/file")
-          self.assertEqual(members[1].uname, "root")
-          self.assertEqual(members[1].gname, "root")
-          self.assertEqual(members[2].name, "usr/dir")
-          self.assertEqual(members[3].name, "usr/dir/file")
-          self.assertEqual(len(members), 4)
+          self.assertEqual(members[0].name, ".")
+          self.assertEqual(members[1].name, "./etc")
+          self.assertEqual(members[2].name, "./etc/conf")
+          self.assertEqual(members[3].name, "./usr")
+          self.assertEqual(members[4].name, "./usr/file")
+          self.assertEqual(members[4].uname, "root")
+          self.assertEqual(members[4].gname, "root")
+          self.assertEqual(members[5].name, "./usr/dir")
+          self.assertEqual(members[6].name, "./usr/dir/file")
+          self.assertEqual(len(members), 7)
 
         with tarOpen("control.tar.gz", "r") as f:
           members = f.getmembers()
@@ -266,20 +269,30 @@ And here is even more\
 
   def testMakeDeb(self):
     """Test creation of a .deb file and examine the contents."""
-    with TemporaryDirectory() as src_root:
-      with open(join(src_root, "file"), "w+") as f:
+    with TemporaryDirectory() as usr_root, \
+         TemporaryDirectory() as etc_root:
+      with open(join(usr_root, "file"), "w+") as f:
         f.write("testfile1")
 
-      d = join(src_root, "dir")
+      d = join(usr_root, "dir")
       mkdir(d)
 
       with open(join(d, "file"), "w+") as f:
         f.write("testfile2")
 
-      content = [(src_root, "usr")]
-      outfile = makeDeb("helloworld", "0.1", content, outdir=src_root)
+      d = join(etc_root, "dir1")
+      mkdir(d)
 
-      self.assertEqual(outfile, join(src_root, "helloworld-0.1.deb"))
+      with open(join(d, "conf"), "w+") as f:
+        f.write("config")
+
+      content = [
+        (usr_root, "usr"),
+        (join(etc_root, "dir1", "conf"), join("etc", "conf")),
+      ]
+      outfile = makeDeb("helloworld", "0.1", content, outdir=usr_root)
+
+      self.assertEqual(outfile, join(usr_root, "helloworld-0.1.deb"))
 
       self.inspect(outfile)
 

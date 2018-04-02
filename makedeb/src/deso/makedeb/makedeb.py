@@ -32,6 +32,7 @@ from os import (
   getcwd,
   makedirs,
   mkdir,
+  sep,
   stat,
   walk,
 )
@@ -133,7 +134,7 @@ def _normalizeMode(dir_):
       _normalizeFileMode(join(root, file_))
 
 
-def _copyContent(content, pkg_root, ignore=None):
+def _copyContent(content, data_root, ignore=None):
   """Copy the content into the deb package root."""
   for src, dst in content:
     # Specifying an absolute path would break the copytree result as the
@@ -141,7 +142,7 @@ def _copyContent(content, pkg_root, ignore=None):
     if isabs(dst):
       raise RuntimeError("Destination path (%s) must not be absolute" % dst)
 
-    dst = join(pkg_root, dst)
+    dst = join(data_root, dst)
     if isdir(src):
       copytree(src, dst, ignore=ignore)
       _normalizeMode(dst)
@@ -190,17 +191,14 @@ def _md5File(file_):
     return md5(f.read()).hexdigest()
 
 
-def _makeMd5Sums(md5sums, pkg, exclude):
+def _makeMd5Sums(md5sums, data_root):
   """Create an md5sums file containing checksums of all packaged files."""
   with open(md5sums, "w+") as md5sums:
-    for root, _, files in walk(pkg):
-      if root.endswith(exclude):
-        continue
-
+    for root, _, files in walk(data_root):
       for file_ in files:
         file_ = join(root, file_)
         chksum = _md5File(file_)
-        path = relpath(file_, pkg)
+        path = relpath(file_, data_root)
         md5sums.write("{chksum}  {path}\n".format(chksum=chksum, path=path))
 
 
@@ -211,8 +209,8 @@ def _chownTarInfo(tar_info):
   return tar_info
 
 
-def _makeDebBinary(pkg_root):
-  path = join(pkg_root, "debian-binary")
+def _makeDebBinary(ctrl_root):
+  path = join(ctrl_root, "debian-binary")
   with open(path, "w+") as f:
     # The current version Debian uses.
     f.write(DEB_VERSION)
@@ -220,9 +218,9 @@ def _makeDebBinary(pkg_root):
   return path
 
 
-def _makeControlTar(debian, control_files, pkg_root):
+def _makeControlTar(debian, control_files, ctrl_root):
   """Create a control.tar.gz containing all the DEBIAN files."""
-  path = join(pkg_root, "control.tar.gz")
+  path = join(ctrl_root, "control.tar.gz")
   with tarOpen(path, "x:gz") as control:
     with cwd(debian):
       control.add(curdir, filter=_chownTarInfo)
@@ -245,28 +243,25 @@ def _makeControlTar(debian, control_files, pkg_root):
   return path
 
 
-def _makeDataTar(content, pkg_root):
+def _makeDataTar(data_root):
   """Create a data.tar.xz containing all the data."""
-  path = join(pkg_root, "data.tar.xz")
-  with tarOpen(path, "x:xz") as data:
-    with cwd(pkg_root):
-      for _, dst in content:
-        data.add(dst, filter=_chownTarInfo)
+  data_file = "data.tar.xz"
+  data_path = join(data_root, data_file)
+  with tarOpen(data_path, "x:xz") as data:
+    with cwd(data_root):
+      for dir_, _, files in walk(curdir):
+        data.add(dir_, recursive=False, filter=_chownTarInfo)
 
-  return path
+        for file_ in files:
+          file_path = join(dir_, file_)
+          # We need to prevent the data archive itself from being
+          # packaged.
+          if file_path == curdir + sep + data_file:
+            continue
 
+          data.add(file_path, filter=_chownTarInfo)
 
-def _makeDebPkg(outfile, debian, control_files, content, pkg_root):
-  """Create a .deb package."""
-  deb_bin = _makeDebBinary(pkg_root)
-  control = _makeControlTar(debian, control_files, pkg_root)
-  data = _makeDataTar(content, pkg_root)
-
-  # Python does not seem to have support for ar(1)-style archives by
-  # default, so we have to fall back to using the system's `ar`. Note
-  # that the order of files in the archive is important.
-  check_call(["ar", "r", outfile, deb_bin, control, data],
-             stdout=DEVNULL, stderr=DEVNULL)
+  return data_path
 
 
 def makeDeb(pkg_name, version, content, control_files=None, outdir=None,
@@ -323,17 +318,18 @@ def makeDeb(pkg_name, version, content, control_files=None, outdir=None,
   # supported) tar archive that contains the actual data that is to be
   # installed. Paths are treated as relative to the root directory.
 
-  with TemporaryDirectory() as pkg:
+  with TemporaryDirectory() as ctrl_dir, \
+       TemporaryDirectory() as data_dir:
     # TODO: Strictly speaking we could get away without copying the
     #       content and adding it to the tar directly. The problem then
     #       is how to determine the install size.
-    _copyContent(content, pkg, ignore=ignore)
+    _copyContent(content, data_dir, ignore=ignore)
     # Note that we retrieve the size before creating any of the
     # additional meta data. That simplifies the logic because we don't
     # have to exclude anything.
-    install_size = _getInstallSize(pkg)
+    install_size = _getInstallSize(data_dir)
 
-    debian = join(pkg, "DEBIAN")
+    debian = join(ctrl_dir, "DEBIAN")
     mkdir(debian)
 
     kwargs = {
@@ -344,11 +340,20 @@ def makeDeb(pkg_name, version, content, control_files=None, outdir=None,
       "long_desc": long_desc,
     }
     _makeControl(join(debian, "control"), pkg_name, version, install_size, **kwargs)
-    _makeMd5Sums(join(debian, "md5sums"), pkg, exclude="DEBIAN")
+    _makeMd5Sums(join(debian, "md5sums"), data_dir)
 
     if outdir is None:
       outdir = curdir
 
+    deb_bin = _makeDebBinary(ctrl_dir)
+    control_tar = _makeControlTar(debian, control_files, ctrl_dir)
+    data_tar = _makeDataTar(data_dir)
+
     outfile = join(outdir, "%s-%s.deb" % (pkg_name, version))
-    _makeDebPkg(outfile, debian, control_files, content, pkg)
+    # Python does not seem to have support for ar(1)-style archives by
+    # default, so we have to fall back to using the system's `ar`. Note
+    # that the order of files in the archive is important.
+    check_call(["ar", "r", outfile, deb_bin, control_tar, data_tar],
+               stdout=DEVNULL, stderr=DEVNULL)
+
     return outfile
